@@ -1,0 +1,99 @@
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Linker files
+*.ilk
+
+# Debugger Files
+*.pdb
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+*.so.*
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Build directories（精简合并，匹配所有build相关目录）
+build*/
+
+# CMake generated files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+install_manifest.txt
+compile_commands.json
+
+# Temporary files
+*.tmp
+*.log
+*.bak
+*.swp
+
+# vcpkg
+vcpkg_installed/
+
+# debug information files
+*.dwo
+
+# test output & cache
+Testing/
+.cache/
+
+# ===================== 补充规则（必加，无冗余） =====================
+# 1. 系统通用垃圾文件（Windows/macOS/Linux）
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+
+# 2. 主流IDE/编辑器配置文件（团队协作必备）
+# Visual Studio
+.vs/
+*.vcxproj.user
+*.suo
+*.sdf
+ipch/
+x64/
+x86/
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# CLion / JetBrains
+.idea/
+
+# Qt Creator
+*.pro.user
+*.qbs.user
+*.pdf
+# 老师板书和代码
+Linux系统编程老师的代码和板书113-master/
+C++直播主线课程老师的代码和板书/
+2025C++录播班/
