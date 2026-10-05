@@ -41,6 +41,21 @@ def load_system_prompt():
         return f.read()
 
 
+def load_learned_block():
+    """同目录下若存在 已学记录.md 且有内容，生成注入用户消息的已学清单块。"""
+    path = os.path.join(BASE_DIR, "已学记录.md")
+    if not os.path.exists(path):
+        return ""
+    with open(path, encoding="utf-8") as f:
+        learned = f.read().strip()
+    if not learned:
+        return ""
+    return (
+        "\n\n【已学清单——以下内容读者已经掌握，禁止展开讲解，最多半句话提及名称或直接跳过；"
+        "仅当新旧知识有天然联系时可用一句话点出关联】\n" + learned
+    )
+
+
 def chat(url, key, model, messages):
     """流式调用（SSE），避免长输出时网关 524 超时。返回 (完整文本, finish_reason)。"""
     body = json.dumps({
@@ -153,6 +168,9 @@ def main():
 
     url, key, model = load_config()
     system_prompt = load_system_prompt()
+    learned_block = load_learned_block()
+    if learned_block:
+        print("已加载 已学记录.md，已学内容将被跳过。")
 
     title, chunks = split_sections(material)
     parts = []
@@ -164,11 +182,11 @@ def main():
             print("[%d/%d] 生成 %s ……" % (i, len(chunks), first_line))
             user_content = "这是课程《%s》第 %d/%d 节的内容提要，请按照提要对这一节进行零基础讲解：\n\n%s" % (
                 title, i, len(chunks), chunk)
-            parts.append(generate_one(url, key, model, system_prompt, user_content))
+            parts.append(generate_one(url, key, model, system_prompt, user_content + learned_block))
     else:
         print("正在生成（模型：%s）……" % model)
         user_content = "请按照以下内容提要/大纲，对这节课进行零基础讲解：\n\n" + material
-        parts.append(generate_one(url, key, model, system_prompt, user_content))
+        parts.append(generate_one(url, key, model, system_prompt, user_content + learned_block))
 
     full = ("\n\n---\n\n").join(parts)
 
