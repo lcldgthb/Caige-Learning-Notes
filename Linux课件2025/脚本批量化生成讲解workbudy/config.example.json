@@ -1,0 +1,5 @@
+{
+  "base_url": "https://api.example.com/v1",
+  "api_key": "sk-REPLACE_WITH_YOUR_OWN_KEY",
+  "model": "your-model-name"
+}
