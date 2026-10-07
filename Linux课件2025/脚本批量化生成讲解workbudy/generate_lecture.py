@@ -61,19 +61,23 @@ def chat(url, key, model, messages):
     body = json.dumps({
         "model": model,
         "messages": messages,
-        "temperature": 0.7,
+        # 不传 temperature：部分模型（如 kimi-k2.6）只允许特定值，交给服务端默认
         "max_tokens": 8000,
         "stream": True,
     }).encode("utf-8")
-    req = urllib.request.Request(
-        url + "/chat/completions",
-        data=body,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": "Bearer " + key,
-            "Accept": "text/event-stream",
-        },
-    )
+
+    def build_req(target):
+        return urllib.request.Request(
+            target,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + key,
+                "Accept": "text/event-stream",
+            },
+        )
+
+    req = build_req(url + "/chat/completions")
     last_err = None
     for attempt in range(1, MAX_RETRY + 1):
         try:
@@ -102,11 +106,20 @@ def chat(url, key, model, messages):
                 return "".join(content_parts), finish_reason
         except urllib.error.HTTPError as e:
             last_err = e
-            # 5xx（如 524 源站超时）重试；4xx（如 401 key 错误）直接退出
-            if e.code < 500:
+            # 3xx 重定向：urllib 对 POST 不自动跟随，手动跟随一次
+            if e.code in (301, 302, 307, 308):
+                loc = e.headers.get("Location")
+                if loc:
+                    print("HTTP %d 重定向，跟随 Location 继续请求……" % e.code)
+                    req = build_req(loc)
+                    attempt -= 1  # 重定向不消耗重试次数
+                    continue
+            # 429（限流）和 5xx（如网关超时）重试；其余 4xx（如 401 key 错误）直接退出
+            if e.code != 429 and e.code < 500:
                 sys.exit("API 请求失败 HTTP %s：%s" % (e.code, e.read().decode("utf-8", "ignore")[:500]))
-            print("HTTP %d，%d 秒后重试（第 %d/%d 次）……" % (e.code, 10 * attempt, attempt, MAX_RETRY))
-            time.sleep(10 * attempt)
+            wait = 20 * attempt if e.code == 429 else 10 * attempt
+            print("HTTP %d，%d 秒后重试（第 %d/%d 次）……" % (e.code, wait, attempt, MAX_RETRY))
+            time.sleep(wait)
         except Exception as e:
             last_err = e
             print("请求异常：%s，%d 秒后重试（第 %d/%d 次）……" % (e, 10 * attempt, attempt, MAX_RETRY))
@@ -174,26 +187,62 @@ def main():
 
     title, chunks = split_sections(material)
     parts = []
+    skip = 0  # 断点续跑时跳过的节数
+
+    out_name = sys.argv[2] if len(sys.argv) >= 3 else derive_output_name(material, input_path)
+    out_path = os.path.join(BASE_DIR, out_name)
+
+    def save():
+        """每节完成立即落盘，中途失败不丢已完成进度。"""
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write(("\n\n---\n\n").join(parts))
+
+    # 断点续跑：按各节首行标题是否已存在于输出文件判断（不能按 --- 切分，正文里也有 --- 分隔线）
+    if os.path.exists(out_path):
+        with open(out_path, encoding="utf-8") as f:
+            existing = f.read()
+        if existing.strip():
+            lines = existing.split("\n")
+            head_order = {c.split("\n", 1)[0].strip(): j for j, c in enumerate(chunks)}
+            found = {}
+            for i, ln in enumerate(lines):
+                s = ln.strip()
+                if s in head_order and head_order[s] not in found:
+                    found[head_order[s]] = i
+            done = 0
+            while done < len(chunks) and done in found:
+                done += 1
+            if done >= len(chunks):
+                print("输出文件已包含全部 %d 节，无需生成。" % len(chunks))
+                return
+            if done > 0:
+                boundary = found.get(done, len(lines))
+                kept = "\n".join(lines[:boundary]).rstrip()
+                while kept.endswith("---"):
+                    kept = kept[:-3].rstrip()
+                parts.append(kept)
+                skip = done
+                print("检测到输出文件已有前 %d 节，从第 %d 节续跑……" % (done, done + 1))
 
     if len(chunks) > 1:
-        print("检测到 %d 个大节，分节生成（模型：%s）……" % (len(chunks), model))
+        print("检测到 %d 个大节，分节生成（模型：%s）……" % (len(chunks) - skip, model))
         for i, chunk in enumerate(chunks, 1):
+            if i <= skip:
+                continue
             first_line = chunk.split("\n", 1)[0]
             print("[%d/%d] 生成 %s ……" % (i, len(chunks), first_line))
             user_content = "这是课程《%s》第 %d/%d 节的内容提要，请按照提要对这一节进行零基础讲解：\n\n%s" % (
                 title, i, len(chunks), chunk)
             parts.append(generate_one(url, key, model, system_prompt, user_content + learned_block))
+            save()
+            print("  已保存 %d/%d 节" % (i, len(chunks)))
     else:
         print("正在生成（模型：%s）……" % model)
         user_content = "请按照以下内容提要/大纲，对这节课进行零基础讲解：\n\n" + material
         parts.append(generate_one(url, key, model, system_prompt, user_content + learned_block))
+        save()
 
     full = ("\n\n---\n\n").join(parts)
-
-    out_name = sys.argv[2] if len(sys.argv) >= 3 else derive_output_name(material, input_path)
-    out_path = os.path.join(BASE_DIR, out_name)
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(full)
 
     print("完成：%s（%d 字符）" % (out_path, len(full)))
 
