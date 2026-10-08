@@ -106,6 +106,9 @@ Linux课件2025/Linux 系统编程/
 # ===================== 密钥与本地配置（严禁提交） =====================
 # 含真实 API key 的本地配置；仓库里只保留 config.example.json 模板
 **/config.json
+**/config.*.json
+**/config-*.json
+**/*credentials*.json
 !**/config.example.json
 
 # 环境变量与密钥文件
