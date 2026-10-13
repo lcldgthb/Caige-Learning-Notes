@@ -11,6 +11,7 @@ generate_lecture.py — 大纲/内容提要 → 聊天版讲解稿（中转站 O
     3. 输出保存在脚本所在目录
     4. 若模型单次输出被截断，脚本会自动发送"继续"补全（最多 5 轮）
 """
+import difflib
 import json
 import os
 import re
@@ -21,7 +22,7 @@ import urllib.request
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MAX_CONTINUE = 5
-MAX_RETRY = 3
+MAX_RETRY = 5
 TIMEOUT = 300
 
 
@@ -198,17 +199,36 @@ def main():
             f.write(("\n\n---\n\n").join(parts))
 
     # 断点续跑：按各节首行标题是否已存在于输出文件判断（不能按 --- 切分，正文里也有 --- 分隔线）
+    # 匹配时只认标题行、忽略 # 层级差异（模型有时把 ## 输出成 #）、
+    # 并用 difflib 模糊匹配兜底（模型有时会改写标题措辞，如 "(Operator System)" → "（Operating System，OS）"）
     if os.path.exists(out_path):
         with open(out_path, encoding="utf-8") as f:
             existing = f.read()
         if existing.strip():
             lines = existing.split("\n")
-            head_order = {c.split("\n", 1)[0].strip(): j for j, c in enumerate(chunks)}
+
+            def norm_head(s):
+                s = re.sub(r"^#+\s*", "", s.strip())
+                s = s.replace("（", "(").replace("）", ")")
+                return re.sub(r"\s+", "", s)
+
+            head_titles = {j: norm_head(c.split("\n", 1)[0]) for j, c in enumerate(chunks)}
+            head_exact = {t: j for j, t in head_titles.items()}
             found = {}
             for i, ln in enumerate(lines):
-                s = ln.strip()
-                if s in head_order and head_order[s] not in found:
-                    found[head_order[s]] = i
+                if not re.match(r"^#{1,6}\s", ln):
+                    continue
+                s = norm_head(ln)
+                j = head_exact.get(s)
+                if j is None:
+                    for k, t in head_titles.items():
+                        if k in found:
+                            continue
+                        if difflib.SequenceMatcher(None, t, s).ratio() >= 0.5:
+                            j = k
+                            break
+                if j is not None and j not in found:
+                    found[j] = i
             done = 0
             while done < len(chunks) and done in found:
                 done += 1
